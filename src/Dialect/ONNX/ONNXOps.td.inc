@@ -3513,6 +3513,7 @@ def ONNXPReluOp:ONNX_Op<"PRelu",
       return {20};
     }
   }];
+  let verifier = [{return ::verify(*this);}];
 }
 
 def ONNXPadOp:ONNX_Op<"Pad",

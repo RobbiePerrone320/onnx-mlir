@@ -1005,6 +1005,15 @@ LogicalResult ONNXSequenceLengthOp::inferShapes(
 //===----------------------------------------------------------------------===//
 /// Infer the output shape of the ONNXPReluOp. This method is required by
 /// the shape inference interface.
+static LogicalResult verify(ONNXPReluOp op) {
+  // PRelu supports unidirectional broadcasting, that is slope should be
+  // unidirectional broadcastable to input X.
+  if (slopeShape.size() > xShape.size()) {
+    return emitError("Slope tensor has a wrong shape");
+  }
+  return success();
+}
+
 LogicalResult ONNXPReluOp::inferShapes(
     std::function<void(mlir::Region &)> doShapeInference) {
   if (!X().getType().isa<RankedTensorType>() ||
@@ -1012,11 +1021,6 @@ LogicalResult ONNXPReluOp::inferShapes(
     return success();
   auto xShape = X().getType().cast<ShapedType>().getShape();
   auto slopeShape = slope().getType().cast<ShapedType>().getShape();
-
-  // PRelu supports unidirectional broadcasting, that is slope should be
-  // unidirectional broadcastable to input X.
-  if (slopeShape.size() > xShape.size())
-    return emitError("Slope tensor has a wrong shape");
 
   // To do unidirectional broadcasting, we first apply bidirectional
   // broadcasting. Then, fine-tune by getting constant dimensions from X.
