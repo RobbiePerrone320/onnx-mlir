@@ -22,16 +22,18 @@ where `<user>` is your GitHub username.
 
 ## Step 2: Setup MLIR
 
-### Setup using Docker
+Depending on whether you are using docker or not, either follow Step 2a or Step 2b below.
+
+### Step 2a: Setup using Docker
 
 Use the template provided in [here](Docker.md#building-onnx-mlir-in-a-docker-environment) to establish a docker image that uses your ONNX-MLIR fork by modifying it as follows:
 
 1. Since the base image used by the template already contains a clone of the ONNX-MLIR main repository, in step 5, add your fork as a remote repository by uncommenting:
 ```sh
-RUN git remote add origin https://github.com/<<GitID>>/onnx-mlir.git
+RUN git remote add origin https://github.com/<user>/onnx-mlir.git
 ```
 
-Replace `<<GitID>>` with your GitHub user name.
+Replace `<user>` with your GitHub user name.
 
 As a best practice, uncomment the line which disables the pushing to upstream to avoid accidental pushes:
 ```sh
@@ -47,7 +49,6 @@ At the end of the commands in Step 5:
 
 3. By default, ONNX-MLIR is built in `Debug` mode. Make the appropriate changes in step 6 if you wish to build ONNX-MLIR in `Release` mode.
 
-
 At any point you can access your Docker image interactively:
 ```sh
 docker run -it myImageName /bin/bash
@@ -61,7 +62,7 @@ cd /workdir/onnx-mlir
 Once inside the repository you can interact with Git via the usual Git commands.
 
 
-### Setup without Docker
+### Step 2b: Setup without Docker
 
 Define a local working directory:
 
@@ -98,6 +99,8 @@ git remote -v
 ```
 
 ## Step 3: Understanding the repository structure
+
+Regardless of whether you are using a Docker image or not, the steps below are again common to both environments.
 
 At the end of the repository setup commands above:
 - `upstream` will refer to the original ONNX-MLIR repository.
@@ -156,8 +159,12 @@ You can now edit the code on the `my-branch` branch.
 
 Follow the directions to build ONNX-MLIR for the OS that you are using [Linux](BuildOnLinuxOSX.md#Build) or [Windows](BuildOnWindows.md#Build).
 
+We expect code to compile without generating any compiler warnings.
 
 ### Run Test
+
+In general, the new features must be tested in one or more of our test suite.
+At a high level, our testing strategy includes `literal` tests (`check-onnx-lit` below), end-to-end tests derived from the ONNX Standard (`check-onnx-backend` and derivatives below, and semi-exhaustive numerical tests (`test` below).
 
 ```sh
 # Run unit test to make sure all test passed.
@@ -165,12 +172,26 @@ make check-onnx-lit
 make check-onnx-backend
 make check-onnx-backend-dynamic
 make check-onnx-backend-constant
-make test
+make check-onnx-numerical
 ```
+Specific testing help is provided in these pages to [run](TestingHighLevel.md) and[generate new tests](Testing.md).
 
 ## Step 7: Commit & Push
 
-Commit your changes, always using the `-s` flag in order to sign your commits.
+ONNX-MLIR requires committers to sign their code using the [Developer Certificate of Origin (DCO)](https://wiki.linuxfoundation.org/dco).
+THere is a one time setup to register your name and email.
+The commands are listed below, where you substitute your name and email address in the "John Doe" fields.
+
+```sh
+git config --global user.name "John Doe"
+git config --global user.email johndoe@example.com
+```
+
+You may also be asked to sign a Contributor License Agreement (CLA) at some times during the PR review.
+If you do, you will have to accept in order to contribute code.
+
+Once these initial tasks are done, you are ready to sign your code by using the `-s` flag during your commits.
+
 ```sh
 git commit -s
 ```
@@ -232,10 +253,8 @@ Your branch is now up to date with the latest ONNX-MLIR.
 
 ## Step 10: Get a code review
 
-Once your pull request has been opened, it will be assigned to at least one
-reviewer. The reviewer(s) will do a thorough code review, looking for
-correctness, bugs, opportunities for improvement, documentation and comments,
-and style.
+Once your pull request has been opened and is not in draft mode anymore, one of us will review the code.
+The reviewer(s) will do a thorough code review, looking for correctness, bugs, opportunities for improvement, testing, documentation and comments, and style.
 
 Commit changes made in response to review comments to the same branch on your fork. Continue to do a sequence of `git commit -s` and `git push` commands (Step 7) to update GitHub of your changes.
 

@@ -4,7 +4,7 @@
 
 //===------------------ ONNXOps.cpp - ONNX Operations ---------------------===//
 //
-// Copyright 2019-2020 The IBM Research Authors.
+// Copyright 2019-2022 The IBM Research Authors.
 //
 // =============================================================================
 //
@@ -34,6 +34,32 @@
 
 using namespace mlir;
 using namespace mlir::OpTrait::util;
+
+//===----------------------------------------------------------------------===//
+// Tablegen Type Definitions
+//===----------------------------------------------------------------------===//
+// Explanation: the type implementation is used in dialect initialization.
+// If ONNXTypes.cpp.inc is included in ONNXTypes.cpp, compilation error occurs.
+#define GET_TYPEDEF_CLASSES
+#include "src/Dialect/ONNX/ONNXTypes.cpp.inc"
+
+//===----------------------------------------------------------------------===//
+// ONNXDialect initialization
+//===----------------------------------------------------------------------===//
+
+/// Dialect creation, the instance will be owned by the context. This is the
+/// point of registration of custom types and operations for the dialect.
+void ONNXDialect::initialize() {
+  addOperations<
+#define GET_OP_LIST
+#include "src/Dialect/ONNX/ONNXOps.cpp.inc"
+      >();
+
+  addTypes<
+#define GET_TYPEDEF_LIST
+#include "src/Dialect/ONNX/ONNXTypes.cpp.inc"
+      >();
+}
 
 //===----------------------------------------------------------------------===//
 // ONNX Helper functions for shape helpers
@@ -565,57 +591,8 @@ static void insertConvTransposeSpatialDim(SmallVectorImpl<int64_t> &outputDims,
 }
 
 //===----------------------------------------------------------------------===//
-// ONNXOpsDialect
+// ONNXEntryPointOp
 //===----------------------------------------------------------------------===//
-
-/// Dialect creation, the instance will be owned by the context. This is the
-/// point of registration of custom types and operations for the dialect.
-ONNXOpsDialect::ONNXOpsDialect(mlir::MLIRContext *ctx)
-    : mlir::Dialect(getDialectNamespace(), ctx, TypeID::get<ONNXOpsDialect>()) {
-  addOperations<
-#define GET_OP_LIST
-#include "src/Dialect/ONNX/ONNXOps.cpp.inc"
-      >();
-  addTypes<onnxmlir::StringType, onnxmlir::SeqType>();
-}
-
-mlir::Type ONNXOpsDialect::parseType(mlir::DialectAsmParser &parser) const {
-  StringRef keyword;
-  if (parser.parseKeyword(&keyword))
-    return Type();
-
-  MLIRContext *context = getContext();
-  if (keyword == "String")
-    return onnxmlir::StringType::get(context);
-  if (keyword == "Seq") {
-    if (parser.parseLess())
-      return Type();
-
-    SmallVector<mlir::Type, 1> elementTypes;
-    mlir::Type elementType;
-    if (parser.parseType(elementType))
-      return Type();
-
-    if (parser.parseGreater())
-      return Type();
-    return onnxmlir::SeqType::get(elementType);
-  }
-
-  parser.emitError(parser.getNameLoc(), "unknown onnx type: " + keyword);
-  return Type();
-}
-
-void ONNXOpsDialect::printType(
-    mlir::Type type, mlir::DialectAsmPrinter &os) const {
-  TypeSwitch<Type>(type)
-      .Case<onnxmlir::StringType>([&](Type) { os << "String"; })
-      .Case<onnxmlir::SeqType>([&](onnxmlir::SeqType type) {
-        os << "Seq<";
-        os << type.getElementType();
-        os << '>';
-      })
-      .Default([](Type) { llvm_unreachable("Unexpected 'onnx' type kind"); });
-}
 
 void ONNXEntryPointOp::build(mlir::OpBuilder &builder,
     mlir::OperationState &state, mlir::FuncOp function, int numInputs,
@@ -642,9 +619,20 @@ ONNXEntryPointOp ONNXEntryPointOp::create(mlir::Location location,
 }
 
 //===----------------------------------------------------------------------===//
+// ONNXNoneOp
+//===----------------------------------------------------------------------===//
+
+OpFoldResult ONNXNoneOp::fold(ArrayRef<Attribute> operands) {
+  return valueAttr();
+}
+
+//===----------------------------------------------------------------------===//
 // ONNX Operations
 //===----------------------------------------------------------------------===//
+
+//===----------------------------------------------------------------------===//
 // Exp
+//===----------------------------------------------------------------------===//
 /// Infer the output shape of the ONNXExpOp. This method is required by the
 /// shape inference interface.
 LogicalResult ONNXExpOp::inferShapes(
@@ -677,6 +665,7 @@ LogicalResult ONNXTanOp::inferShapes(
 
 //===----------------------------------------------------------------------===//
 // Tanh
+//===----------------------------------------------------------------------===//
 /// Infer the output shape of the ONNXTanhOp. This method is required by the
 /// shape inference interface.
 LogicalResult ONNXTanhOp::inferShapes(
@@ -879,10 +868,13 @@ LogicalResult ONNXSeluOp::inferShapes(
 // be used. The benefit to refine shape info for seq is unclear to me.
 // Therefore, the current implementation does not try to refine the shape info.
 
+//===----------------------------------------------------------------------===//
+// SequenceInsertOp
+//===----------------------------------------------------------------------===//
+
 LogicalResult ONNXSequenceInsertOp::inferShapes(
     std::function<void(mlir::Region &)> doShapeInference) {
-  onnxmlir::SeqType seqType =
-      input_sequence().getType().dyn_cast<mlir::onnxmlir::SeqType>();
+  SeqType seqType = input_sequence().getType().dyn_cast<mlir::SeqType>();
   ShapedType tensorType = tensor().getType().dyn_cast<ShapedType>();
   ShapedType seqTensorType = seqType.getElementType().cast<ShapedType>();
 
@@ -892,7 +884,7 @@ LogicalResult ONNXSequenceInsertOp::inferShapes(
 
   // When the input seq is empty, inherit the tensor type
   if (seqType.getLength() == 0) {
-    getResult().setType(onnxmlir::SeqType::get(tensorType, 1));
+    getResult().setType(SeqType::get(tensorType, 1));
     return success();
   }
 
@@ -900,11 +892,11 @@ LogicalResult ONNXSequenceInsertOp::inferShapes(
 
   // When one of the tensor is unranked
   if (!tensorType.hasRank()) {
-    getResult().setType(onnxmlir::SeqType::get(tensorType, newLength));
+    getResult().setType(SeqType::get(tensorType, newLength));
     return success();
   }
   if (!seqTensorType.hasRank()) {
-    getResult().setType(onnxmlir::SeqType::get(seqTensorType, newLength));
+    getResult().setType(SeqType::get(seqTensorType, newLength));
     return success();
   }
 
@@ -922,7 +914,7 @@ LogicalResult ONNXSequenceInsertOp::inferShapes(
   for (auto i = 0; i < tensorRank; i++) {
     dims.emplace_back(seqShape[i] != tensorShape[i] ? -1 : tensorShape[i]);
   }
-  getResult().setType(onnxmlir::SeqType::get(
+  getResult().setType(SeqType::get(
       mlir::RankedTensorType::get(dims, tensorType.getElementType()),
       newLength));
 
@@ -935,7 +927,7 @@ static LogicalResult verify(ONNXSequenceInsertOp op) {
   // These cast should be guaranteed by default verifier
   Type seqElementType = operandAdaptor.input_sequence()
                             .getType()
-                            .dyn_cast<mlir::onnxmlir::SeqType>()
+                            .dyn_cast<mlir::SeqType>()
                             .getElementType();
   Type elementType1 = seqElementType.dyn_cast<ShapedType>().getElementType();
   ShapedType insertType =
@@ -949,41 +941,65 @@ static LogicalResult verify(ONNXSequenceInsertOp op) {
   return success();
 }
 
+//===----------------------------------------------------------------------===//
+// ConcatFromSequenceOp
+//===----------------------------------------------------------------------===//
+
 LogicalResult ONNXConcatFromSequenceOp::inferShapes(
     std::function<void(mlir::Region &)> doShapeInference) {
   return success();
 }
+
+//===----------------------------------------------------------------------===//
+// SequenceAtOp
+//===----------------------------------------------------------------------===//
 
 LogicalResult ONNXSequenceAtOp::inferShapes(
     std::function<void(mlir::Region &)> doShapeInference) {
   return success();
 }
 
+//===----------------------------------------------------------------------===//
+// SequenceConstructOp
+//===----------------------------------------------------------------------===//
+
 LogicalResult ONNXSequenceConstructOp::inferShapes(
     std::function<void(mlir::Region &)> doShapeInference) {
   return success();
 }
 
+//===----------------------------------------------------------------------===//
+// SequenceEmptyOp
+//===----------------------------------------------------------------------===//
+
 LogicalResult ONNXSequenceEmptyOp::inferShapes(
     std::function<void(mlir::Region &)> doShapeInference) {
-  auto originTy = getResult().getType().cast<onnxmlir::SeqType>();
+  auto originTy = getResult().getType().cast<SeqType>();
   auto elementTy = originTy.getElementType();
-  auto returnTy = onnxmlir::SeqType::get(elementTy, 0);
+  auto returnTy = SeqType::get(elementTy, 0);
   getResult().setType(returnTy);
   return success();
 }
 
+//===----------------------------------------------------------------------===//
+// SequenceEraseOp
+//===----------------------------------------------------------------------===//
+
 LogicalResult ONNXSequenceEraseOp::inferShapes(
     std::function<void(mlir::Region &)> doShapeInference) {
-  auto inputTy = input_sequence().getType().cast<onnxmlir::SeqType>();
+  auto inputTy = input_sequence().getType().cast<SeqType>();
   int64_t length = inputTy.getLength();
 
   if (length == 0)
     return emitError("SequenceErase from an empty seq");
-  getResult().setType(onnxmlir::SeqType::get(
-      inputTy.getElementType(), length == -1 ? -1 : length - 1));
+  getResult().setType(
+      SeqType::get(inputTy.getElementType(), length == -1 ? -1 : length - 1));
   return success();
 }
+
+//===----------------------------------------------------------------------===//
+// SequenceLengthOp
+//===----------------------------------------------------------------------===//
 
 LogicalResult ONNXSequenceLengthOp::inferShapes(
     std::function<void(mlir::Region &)> doShapeInference) {
@@ -1038,7 +1054,7 @@ LogicalResult ONNXPReluOp::inferShapes(
 }
 
 //===----------------------------------------------------------------------===//
-// Reciprocal
+// ReciprocalOp
 //===----------------------------------------------------------------------===//
 /// Infer the output shape of the ONNXReciprocalOp. This method is required by
 /// the shape inference interface.
@@ -1049,7 +1065,7 @@ LogicalResult ONNXReciprocalOp::inferShapes(
 }
 
 //===----------------------------------------------------------------------===//
-// Softmax
+// SoftmaxOp
 //===----------------------------------------------------------------------===//
 /// Infer the output shape of the ONNXSoftmaxOp. This method is required by
 /// the shape inference interface.
@@ -1060,7 +1076,7 @@ LogicalResult ONNXSoftmaxOp::inferShapes(
 }
 
 //===----------------------------------------------------------------------===//
-// Softplus
+// SoftplusOp
 //===----------------------------------------------------------------------===//
 /// Infer the output shape of the ONNXSoftplusOp. This method is required by
 /// the shape inference interface.
@@ -1071,7 +1087,7 @@ LogicalResult ONNXSoftplusOp::inferShapes(
 }
 
 //===----------------------------------------------------------------------===//
-// Softsign
+// SoftsignOp
 //===----------------------------------------------------------------------===//
 /// Infer the output shape of the ONNXSoftsignOp. This method is required by
 /// the shape inference interface.
@@ -1082,7 +1098,7 @@ LogicalResult ONNXSoftsignOp::inferShapes(
 }
 
 //===----------------------------------------------------------------------===//
-// Sqrt
+// SqrtOp
 //===----------------------------------------------------------------------===//
 /// Infer the output shape of the ONNXSqrtOp. This method is required by
 /// the shape inference interface.
@@ -1093,7 +1109,7 @@ LogicalResult ONNXSqrtOp::inferShapes(
 }
 
 //===----------------------------------------------------------------------===//
-// Sign
+// SignOp
 //===----------------------------------------------------------------------===//
 /// Infer the output shape of the ONNXSignOp. This method is required by
 /// the shape inference interface.
@@ -1104,7 +1120,7 @@ LogicalResult ONNXSignOp::inferShapes(
 }
 
 //===----------------------------------------------------------------------===//
-// Abs
+// AbsOp
 //===----------------------------------------------------------------------===//
 /// Infer the output shape of the ONNXAbsOp. This method is required by the
 /// shape inference interface.
@@ -1115,7 +1131,7 @@ LogicalResult ONNXAbsOp::inferShapes(
 }
 
 //===----------------------------------------------------------------------===//
-// Erf
+// ErfOp
 //===----------------------------------------------------------------------===//
 
 LogicalResult ONNXErfOp::inferShapes(
@@ -1125,7 +1141,7 @@ LogicalResult ONNXErfOp::inferShapes(
 }
 
 //===----------------------------------------------------------------------===//
-// Pow
+// PowOp
 //===----------------------------------------------------------------------===//
 
 LogicalResult ONNXPowOp::inferShapes(
@@ -1146,7 +1162,7 @@ LogicalResult ONNXPowOp::inferShapes(
 }
 
 //===----------------------------------------------------------------------===//
-// Add
+// AddOp
 //===----------------------------------------------------------------------===//
 /// Infer the output shape of the ONNXAddOp. This method is required by the
 /// shape inference interface.
@@ -1162,7 +1178,7 @@ LogicalResult ONNXAddOp::inferShapes(
 }
 
 //===----------------------------------------------------------------------===//
-// Mul
+// MulOp
 //===----------------------------------------------------------------------===//
 /// Infer the output shape of the ONNXMulOp. This method is required by the
 /// shape inference interface.
@@ -1178,7 +1194,7 @@ LogicalResult ONNXMulOp::inferShapes(
 }
 
 //===----------------------------------------------------------------------===//
-// Div
+// DivOp
 //===----------------------------------------------------------------------===//
 /// Infer the output shape of the ONNXDivOp. This method is required by the
 /// shape inference interface.
@@ -1194,7 +1210,7 @@ LogicalResult ONNXDivOp::inferShapes(
 }
 
 //===----------------------------------------------------------------------===//
-// Sub
+// SubOp
 //===----------------------------------------------------------------------===//
 /// Infer the output shape of the ONNXSubOp. This method is required by the
 /// shape inference interface.
@@ -1210,7 +1226,7 @@ LogicalResult ONNXSubOp::inferShapes(
 }
 
 //===----------------------------------------------------------------------===//
-// And
+// AndOp
 //===----------------------------------------------------------------------===//
 /// Infer the output shape of the ONNXAndOp. This method is required by the
 /// shape inference interface.
@@ -1226,7 +1242,7 @@ LogicalResult ONNXAndOp::inferShapes(
 }
 
 //===----------------------------------------------------------------------===//
-// Or
+// OrOp
 //===----------------------------------------------------------------------===//
 /// Infer the output shape of the ONNXOrOp. This method is required by the
 /// shape inference interface.
@@ -1242,7 +1258,7 @@ LogicalResult ONNXOrOp::inferShapes(
 }
 
 //===----------------------------------------------------------------------===//
-// Xor
+// XorOp
 //===----------------------------------------------------------------------===//
 /// Infer the output shape of the ONNXXorOp. This method is required by the
 /// shape inference interface.
@@ -1258,7 +1274,7 @@ LogicalResult ONNXXorOp::inferShapes(
 }
 
 //===----------------------------------------------------------------------===//
-// Sum
+// SumOp
 //===----------------------------------------------------------------------===//
 /// Infer the output shape of the ONNXSumOp. This method is required by the
 /// shape inference interface.
@@ -1278,7 +1294,7 @@ LogicalResult ONNXSumOp::inferShapes(
 }
 
 //===----------------------------------------------------------------------===//
-// Max
+// MaxOp
 //===----------------------------------------------------------------------===//
 /// Infer the output shape of the ONNXMaxOp. This method is required by the
 /// shape inference interface.
@@ -1298,7 +1314,7 @@ LogicalResult ONNXMaxOp::inferShapes(
 }
 
 //===----------------------------------------------------------------------===//
-// Min
+// MinOp
 //===----------------------------------------------------------------------===//
 /// Infer the output shape of the ONNXMinOp. This method is required by the
 /// shape inference interface.
@@ -1318,7 +1334,7 @@ LogicalResult ONNXMinOp::inferShapes(
 }
 
 //===----------------------------------------------------------------------===//
-// Neg
+// NegOp
 //===----------------------------------------------------------------------===//
 /// Infer the output shape of the ONNXNegOp. This method is required by the
 /// shape inference interface.
@@ -1329,7 +1345,7 @@ LogicalResult ONNXNegOp::inferShapes(
 }
 
 //===----------------------------------------------------------------------===//
-// Identity
+// IdentityOp
 //===----------------------------------------------------------------------===//
 /// Infer the output shape of the ONNXIdentityOp. This method is required by the
 /// shape inference interface.
@@ -1340,7 +1356,7 @@ LogicalResult ONNXIdentityOp::inferShapes(
 }
 
 //===----------------------------------------------------------------------===//
-// MatMul
+// MatMulOp
 //===----------------------------------------------------------------------===//
 
 LogicalResult ONNXMatMulOp::inferShapes(
@@ -1355,7 +1371,7 @@ LogicalResult ONNXMatMulOp::inferShapes(
 }
 
 //===----------------------------------------------------------------------===//
-// QLinearMatMul
+// QLinearMatMulOp
 //===----------------------------------------------------------------------===//
 
 LogicalResult ONNXQLinearMatMulOp::inferShapes(
@@ -1486,7 +1502,7 @@ LogicalResult ONNXQLinearMatMulOp::inferShapes(
   return success();
 }
 
-// Gemm
+// GemmOp
 LogicalResult ONNXGemmOp::inferShapes(
     std::function<void(mlir::Region &)> doShapeInference) {
   bool hasBias = !C().getType().isa<NoneType>();
@@ -1500,7 +1516,7 @@ LogicalResult ONNXGemmOp::inferShapes(
       ONNXGemmOpAdaptor>(this, A());
 }
 
-/// BatchNormalizationInferenceMode
+/// BatchNormalizationInferenceModeOp
 LogicalResult ONNXBatchNormalizationInferenceModeOp::inferShapes(
     std::function<void(mlir::Region &)> doShapeInference) {
   // Cannot infer shape if no shape exists.
@@ -2823,9 +2839,30 @@ LogicalResult ONNXSplitV11Op::inferShapes(
 // Flatten
 //===----------------------------------------------------------------------===//
 
+static LogicalResult verify(ONNXFlattenOp op) {
+
+  if (!hasShapeAndRank(op.input())) {
+    return success();
+  }
+  auto inTy = op.input().getType().dyn_cast<ShapedType>();
+  if (!inTy) {
+    return success();
+  }
+
+  int64_t axisValue = op.axis();
+  auto inputShape = inTy.getShape();
+  int64_t inputRank = inputShape.size();
+
+  if (axisValue < -1 * inputRank || axisValue > inputRank) {
+    return op.emitError("ONNXFlattenOP: axis() value is out of range");
+  }
+
+  return success();
+}
+
 LogicalResult ONNXFlattenOp::inferShapes(
     std::function<void(mlir::Region &)> doShapeInference) {
-  auto inTy = input().getType().dyn_cast<RankedTensorType>();
+  auto inTy = input().getType().dyn_cast_or_null<RankedTensorType>();
   if (!inTy) {
     return success();
   }
@@ -2833,9 +2870,6 @@ LogicalResult ONNXFlattenOp::inferShapes(
   int64_t axisValue = axis();
   auto inputShape = inTy.getShape();
   int64_t inputRank = inputShape.size();
-  if (axisValue < -1 * inputRank || axisValue > inputRank) {
-    return emitOpError("ONNXFlattenOP: axis() value is out of range");
-  }
 
   SmallVector<int64_t, 2> dims;
 
@@ -4704,7 +4738,7 @@ static LogicalResult verify(ONNXCategoryMapperOp op) {
 
   ShapedType inputType = X.getType().cast<ShapedType>();
   Type elementType = inputType.getElementType();
-  if (!elementType.isInteger(64) && !elementType.isa<onnxmlir::StringType>())
+  if (!elementType.isInteger(64) && !elementType.isa<ONNXStringType>())
     return op.emitError("input must be a tensor of int64 or string");
 
   // Check attributes.
@@ -4718,11 +4752,8 @@ static LogicalResult verify(ONNXCategoryMapperOp op) {
 
   if (elementType.isInteger(64) && !op.default_stringAttr())
     return op.emitError("'default_string' attribute is missing.");
-  if (elementType.isa<onnxmlir::StringType>() && !op.default_int64Attr())
+  if (elementType.isa<ONNXStringType>() && !op.default_int64Attr())
     return op.emitError("'default_int64' attribute is missing.");
-  if (op.default_stringAttr() && op.default_int64Attr())
-    return op.emitError("Only one of 'default_int64' or 'default_string' "
-                        "attributes must be specified");
 
   return success();
 }
@@ -4735,7 +4766,7 @@ LogicalResult ONNXCategoryMapperOp::inferShapes(
 
   Type inputElementType = X().getType().cast<ShapedType>().getElementType();
   assert((inputElementType.isInteger(64) ||
-             inputElementType.isa<onnxmlir::StringType>()) &&
+             inputElementType.isa<ONNXStringType>()) &&
          "Input tensor must have int64 or string element type.");
 
   ONNXCategoryMapperOpAdaptor operandAdaptor(*this);
@@ -4745,7 +4776,7 @@ LogicalResult ONNXCategoryMapperOp::inferShapes(
 
   Type outputElementType;
   if (inputElementType.isInteger(64))
-    outputElementType = onnxmlir::StringType::get(getContext());
+    outputElementType = ONNXStringType::get(getContext());
   else
     outputElementType = IntegerType::get(getContext(), /*width=*/64);
 
@@ -4978,68 +5009,12 @@ LogicalResult ONNXCallOp::verifySymbolUses(SymbolTableCollection &symbolTable) {
 FunctionType ONNXCallOp::getCalleeType() {
   return FunctionType::get(getContext(), getOperandTypes(), getResultTypes());
 }
-//===----------------------------------------------------------------------===//
-// ONNX type related code
-//===----------------------------------------------------------------------===//
-
-namespace mlir {
-namespace onnxmlir {
-namespace detail {
-struct SeqTypeStorage : public mlir::TypeStorage {
-  // std::tuple, instead of std::pair,  is used as the key for seq Type
-  // because the list of elements may be added later for lowering seq
-  using KeyTy = std::tuple<mlir::Type, int64_t>;
-
-  SeqTypeStorage(mlir::Type elementType, int64_t length)
-      : elementType(elementType), seqLength(length) {}
-
-  bool operator==(const KeyTy &key) const {
-    return key == KeyTy(elementType, seqLength);
-  }
-  static llvm::hash_code hasKey(const KeyTy &key) {
-    mlir::Type eT;
-    int64_t l;
-    std::tie(eT, l) = key;
-    return llvm::hash_combine(eT, l);
-  }
-
-  static KeyTy getKey(mlir::Type elementType, int64_t length) {
-    return KeyTy(elementType, length);
-  }
-
-  static SeqTypeStorage *construct(
-      mlir::TypeStorageAllocator &allocator, const KeyTy &key) {
-    mlir::Type eT;
-    int64_t l;
-    std::tie(eT, l) = key;
-    return new (allocator.allocate<SeqTypeStorage>()) SeqTypeStorage(eT, l);
-  }
-  mlir::Type elementType; // Type for element of Seq
-  int64_t seqLength;      // Length of Seq. -1 when is not statically known
-};
-} // end namespace detail
-} // end namespace onnxmlir
-} // end namespace mlir
-
-onnxmlir::SeqType onnxmlir::SeqType::get(
-    mlir::Type elementType, int64_t length) {
-  mlir::MLIRContext *ctx = elementType.getContext();
-  return Base::get(ctx, elementType, length);
-}
-
-mlir::Type onnxmlir::SeqType::getElementType() const {
-  return getImpl()->elementType;
-}
-
-int64_t onnxmlir::SeqType::getLength() const { return getImpl()->seqLength; }
 
 //===----------------------------------------------------------------------===//
 // TableGen'd op method definitions
 //===----------------------------------------------------------------------===//
 
 #define GET_OP_CLASSES
-
-using namespace onnxmlir;
 #include "src/Dialect/ONNX/ONNXOps.cpp.inc"
 
 template struct ONNXGenericPoolShapeHelper<ONNXMaxPoolSingleOutOp,
