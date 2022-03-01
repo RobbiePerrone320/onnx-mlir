@@ -119,7 +119,7 @@ struct ONNXArgMaxOpLowering : public ConversionPattern {
     // if index is less than 0, we should set 0 as initial position
     Value lessThanZero = rewriter.create<arith::CmpIOp>(
         loc, arith::CmpIPredicate::slt, idx, zero);
-    idx = rewriter.create<SelectOp>(loc, lessThanZero, zero, idx);
+    idx = rewriter.create<arith::SelectOp>(loc, lessThanZero, zero, idx);
 
     // induction variables of current max value
     for (int i = 0; i < dataRank; ++i) {
@@ -127,7 +127,7 @@ struct ONNXArgMaxOpLowering : public ConversionPattern {
         maxLoopIVs.push_back(calcLoops.getInductionVar(i));
       else
         maxLoopIVs.push_back(rewriter.create<arith::IndexCastOp>(
-            loc, idx, rewriter.getIndexType()));
+            loc, rewriter.getIndexType(), idx));
     }
     Value maxVal = rewriter.create<KrnlLoadOp>(loc, data, maxLoopIVs);
 
@@ -135,8 +135,8 @@ struct ONNXArgMaxOpLowering : public ConversionPattern {
     Value greaterThanMax = rewriter.create<arith::CmpFOp>(
         loc, arith::CmpFPredicate::OGT, next, maxVal);
     Value pos = rewriter.create<arith::IndexCastOp>(
-        loc, inLoopIVs[axis], rewriter.getIntegerType(64));
-    idx = rewriter.create<SelectOp>(loc, greaterThanMax, pos, idx);
+        loc, rewriter.getIntegerType(64), inLoopIVs[axis]);
+    idx = rewriter.create<arith::SelectOp>(loc, greaterThanMax, pos, idx);
     rewriter.create<KrnlStoreOp>(loc, idx, alloc, outLoopIVs);
 
     rewriter.replaceOp(op, alloc);
