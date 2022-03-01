@@ -50,14 +50,11 @@ func @test_flatten_verifier_1(%arg0 : tensor<5x5x1x32xf32>) -> tensor<*xf32> {
 }
 
 // -----
-<<<<<<< HEAD
 
-func @test_Prelu_verifier_1(%arg0 : tensor<5x5x1x32xf32>, %arg1 : tensor<5x5x3x32xf32>) -> tensor<*xf32> {
-  // expected-error @+1 {{ONNXPReluOP: axis() value is out of range}}
-  %1 = "onnx.Flatten"(%arg0) { axis = 5 : si64} : (tensor<5x5x1x32xf32>) -> tensor<*xf32>
-  "std.return"(%1) : (tensor<*xf32>) -> ()
+func @test_Prelu_verifier_1(%arg0 : tensor<3x4x5xf32>, %arg1 : tensor<3x4x5x6xf32>) -> tensor<*xf32> {
+  // expected-error @+1 {{ONNXPReluOP: Slope tensor has a wrong shape}}
+  %0 = "onnx.PRelu"(%arg0, %arg1) : (tensor<3x4x5xf32>, tensor<3x4x5x6xf32>) -> tensor<*xf32>
+  "std.return"(%0) : (tensor<*xf32>) -> ()
 }
 
 // -----
-=======
->>>>>>> 797adb027ee76d72a9240fdd830351994b0fd10b

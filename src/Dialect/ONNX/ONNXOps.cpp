@@ -1024,8 +1024,15 @@ LogicalResult ONNXSequenceLengthOp::inferShapes(
 static LogicalResult verify(ONNXPReluOp op) {
   // PRelu supports unidirectional broadcasting, that is slope should be
   // unidirectional broadcastable to input X.
+  auto xShape = op.X().getType().cast<ShapedType>().getShape();
+  auto inputType = op.X().getType().dyn_cast<ShapedType>(); //find out the input type and cast the variable depending on the input
+  auto slopeShape = op.slope().getType().cast<ShapedType>().getShape();
+  
+  if (!inputType) {
+    return success();
+  }
   if (slopeShape.size() > xShape.size()) {
-    return emitError("Slope tensor has a wrong shape");
+    return op.emitError("ONNXPReluOP: Slope tensor has a wrong shape");
   }
   return success();
 }
