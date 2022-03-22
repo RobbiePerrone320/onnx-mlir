@@ -51,6 +51,7 @@ func @test_flatten_verifier_1(%arg0 : tensor<5x5x1x32xf32>) -> tensor<*xf32> {
 
 // -----
 
+
 func @test_Prelu_verifier_1(%arg0 : tensor<3x4x5xf32>, %arg1 : tensor<3x4x5x6xf32>) -> tensor<*xf32> {
   // expected-error @+1 {{ONNXPReluOP: Slope tensor has a wrong shape}}
   %0 = "onnx.PRelu"(%arg0, %arg1) : (tensor<3x4x5xf32>, tensor<3x4x5x6xf32>) -> tensor<*xf32>
@@ -58,3 +59,16 @@ func @test_Prelu_verifier_1(%arg0 : tensor<3x4x5xf32>, %arg1 : tensor<3x4x5x6xf3
 }
 
 // -----
+
+func @test_pow_verifier_1(%arg0: tensor<1x2x3x4xf32>, %arg1: tensor<f32>) -> tensor<*xf32> {
+  %0 = "onnx.Pow"(%arg0, %arg1) : (tensor<1x2x3x4xf32>, tensor<f32>) -> tensor<*xf32>
+  "std.return"(%0) : (tensor<*xf32>) -> ()
+}
+
+// -----
+func @test_sequence_empty() -> none {
+  // expected-error @+1 {{SequenceEmpty dtype() does not match the output type}}
+  %1 = "onnx.SequenceEmpty"() : () -> !onnx.Seq<tensor<*xi32>>
+  %2 = "onnx.NoValue"() {value} : () -> none
+  return %2 : none
+}

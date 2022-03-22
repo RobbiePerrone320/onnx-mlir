@@ -40,7 +40,7 @@
 #include "mlir/Target/LLVMIR/ModuleTranslation.h"
 #include "mlir/Transforms/DialectConversion.h"
 #include "llvm/ADT/Sequence.h"
-#include "llvm/IR/DataLayout.h"
+#include "llvm/ADT/Triple.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/Endian.h"
 
@@ -61,7 +61,7 @@ using namespace mlir;
 namespace onnx_mlir {
 namespace krnl {
 
-static void checkConstantOutputs(
+void checkConstantOutputs(
     ModuleOp &module, SmallVectorImpl<bool> &constantOutputs) {
   Operation *entryPointOp;
   auto walkResult = module->walk([&](mlir::Operation *op) -> WalkResult {
@@ -136,7 +136,7 @@ static void checkConstantOutputs(
   }
 }
 
-static void populateAffineAndKrnlToLLVMConversion(RewritePatternSet &patterns,
+void populateAffineAndKrnlToLLVMConversion(RewritePatternSet &patterns,
     LLVMTypeConverter &typeConverter, MLIRContext *ctx,
     ArrayRef<bool> constantOutputs, bool singleEntryPoint) {
   // TODO: look at what is done in
@@ -145,8 +145,6 @@ static void populateAffineAndKrnlToLLVMConversion(RewritePatternSet &patterns,
   // They run it in two steps, and add additional lowerings.
 
   vector::populateVectorToVectorCanonicalizationPatterns(patterns);
-  // Removed in upgrade of LLVM:
-  // vector::populateVectorSlicesLoweringPatterns(patterns);
   vector::populateVectorBroadcastLoweringPatterns(patterns);
   vector::populateVectorContractLoweringPatterns(patterns);
   vector::populateVectorTransposeLoweringPatterns(patterns);
@@ -178,6 +176,12 @@ void recordEntryPointSignatures(ModuleOp &module,
     SmallVectorImpl<std::string> &entryPointNames,
     SmallVectorImpl<std::string> &inSignatures,
     SmallVectorImpl<std::string> &outSignatures) {
+
+  bool zOS = false;
+  if (Attribute mtripleAttr =
+          module->getAttrOfType<::mlir::Attribute>("llvm.target_triple"))
+    zOS = llvm::Triple(mtripleAttr.cast<StringAttr>().getValue()).isOSzOS();
+
   module->walk([&](KrnlEntryPointOp entryOp) -> WalkResult {
     Operation *op = entryOp.getOperation();
     // Entry point name.
@@ -188,7 +192,10 @@ void recordEntryPointSignatures(ModuleOp &module,
             .getValue();
     std::string terminatedEntryPointName = "run_" + entryPointName.str();
     terminatedEntryPointName.push_back('\0'); // null terminate the string.
-    entryPointNames.emplace_back(terminatedEntryPointName);
+    if (zOS)
+      entryPointNames.emplace_back(krnl::a2e_s(terminatedEntryPointName));
+    else
+      entryPointNames.emplace_back(terminatedEntryPointName);
 
     // Input/output signatures.
     StringAttr sigAttr =
@@ -197,8 +204,13 @@ void recordEntryPointSignatures(ModuleOp &module,
     auto splitSig = signature.split('@');
     llvm::StringRef inSig = splitSig.first;
     llvm::StringRef outSig = splitSig.second;
-    inSignatures.emplace_back(inSig.str());
-    outSignatures.emplace_back(outSig.str());
+    if (zOS) {
+      inSignatures.emplace_back(krnl::a2e_s(inSig.str()));
+      outSignatures.emplace_back(krnl::a2e_s(outSig.str()));
+    } else {
+      inSignatures.emplace_back(inSig.str());
+      outSignatures.emplace_back(outSig.str());
+    }
 
     return WalkResult::advance();
   });
@@ -206,8 +218,11 @@ void recordEntryPointSignatures(ModuleOp &module,
   // When there is only a single entry point function in a model, use
   // DEFAULT_DYN_ENTRY_POINT.
   if (entryPointNames.size() == 1) {
-    entryPointNames[0] = DEFAULT_DYN_ENTRY_POINT;
-    entryPointNames[0].push_back('\0'); // null terminate the string.
+    std::string defaultEntryPoint = DEFAULT_DYN_ENTRY_POINT;
+    defaultEntryPoint.push_back('\0'); // null terminate the string.
+    if (zOS)
+      defaultEntryPoint = krnl::a2e_s(defaultEntryPoint);
+    entryPointNames[0] = defaultEntryPoint;
   }
 }
 
@@ -442,9 +457,9 @@ struct ConvertKrnlToLLVMPass
 
 void ConvertKrnlToLLVMPass::runOnOperation() {
   ModuleOp module = getOperation();
+  MLIRContext *ctx = &getContext();
   const auto &dataLayoutAnalysis = getAnalysis<DataLayoutAnalysis>();
-  LowerToLLVMOptions options(
-      &getContext(), dataLayoutAnalysis.getAtOrAbove(module));
+  LowerToLLVMOptions options(ctx, dataLayoutAnalysis.getAtOrAbove(module));
   options.emitCWrappers = true;
 
   // Determine, for each output, whether it is a constant or not.
@@ -458,14 +473,16 @@ void ConvertKrnlToLLVMPass::runOnOperation() {
       module, entryPointNames, inSignatures, outSignatures);
 
   // Define the target for this lowering i.e. the LLVM dialect.
-  ConversionTarget target(getContext());
+  ConversionTarget target(*ctx);
   target.addLegalDialect<LLVM::LLVMDialect>();
   target.addLegalOp<ModuleOp>();
   target.addLegalOp<UnrealizedConversionCastOp>();
 
   // Convert types to legal types for the LLVM dialect.
-  LLVMTypeConverter typeConverter(&getContext(), options);
+  LLVMTypeConverter typeConverter(ctx, options);
+  customizeTypeConverter(typeConverter);
 
+#if 0
   typeConverter.addConversion([&](MemRefType type) -> llvm::Optional<Type> {
     Type elementType = type.getElementType();
     if (!elementType.isa<StringType>())
@@ -479,13 +496,15 @@ void ConvertKrnlToLLVMPass::runOnOperation() {
   typeConverter.addConversion([&](StringType type) -> Type {
     return typeConverter.convertType(type.getLLVMType(type.getContext()));
   });
+#endif
 
   // We have a combination of `krnl`, `affine`, `vector`, and `std` operations.
   // We lower in stages until all the code is in the LLVM dialect.
-  RewritePatternSet patterns(&getContext());
+  RewritePatternSet patterns(ctx);
 
-  populateAffineAndKrnlToLLVMConversion(patterns, typeConverter, &getContext(),
-      constantOutputs, /*singleEntryPoint=*/entryPointNames.size() == 1);
+  populateAffineAndKrnlToLLVMConversion(patterns, typeConverter, ctx,
+      constantOutputs,
+      /*singleEntryPoint=*/entryPointNames.size() == 1);
 
   // We want to completely lower to LLVM, so we use a `FullConversion`. This
   // ensures that only legal operations will remain after the conversion.

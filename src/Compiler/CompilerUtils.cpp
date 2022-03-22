@@ -29,9 +29,12 @@
 #include "llvm/Target/TargetMachine.h"
 
 #include "ExternalUtil.hpp"
+#include "src/Accelerators/Accelerator.hpp"
 #include "src/Compiler/CompilerUtils.hpp"
 #include "src/Conversion/KrnlToLLVM/ConvertKrnlToLLVM.hpp"
 #include "src/Support/OMOptions.hpp"
+
+#include "VCSVersion.inc"
 
 #define DEBUG_TYPE "compiler_utils"
 
@@ -40,6 +43,14 @@ using namespace mlir;
 using namespace onnx_mlir;
 
 const string OnnxMlirEnvOptionName = "ONNX_MLIR_FLAGS";
+#if defined(ONNX_MLIR_REPOSITORY) && defined(ONNX_MLIR_REVISION) &&            \
+    defined(LLVM_REPOSITORY) && defined(LLVM_REVISION)
+static const string OnnxMlirVersion =
+    "onnx-mlir version 1.0.0 (" ONNX_MLIR_REPOSITORY " " ONNX_MLIR_REVISION
+    " " LLVM_REPOSITORY " " LLVM_REVISION ")";
+#else
+const string OnnxMlirVersion = "onnx-mlir version 1.0.0";
+#endif
 
 llvm::cl::OptionCategory OnnxMlirOptions(
     "ONNX-MLIR Options", "These are frontend options.");
@@ -103,7 +114,7 @@ static llvm::cl::opt<string> shapeInformation("shapeInformation",
 
 static llvm::cl::opt<std::string> mtriple("mtriple",
     llvm::cl::desc("Override target triple for module"),
-    llvm::cl::value_desc("LLVM target triple>"), llvm::cl::cat(OnnxMlirOptions),
+    llvm::cl::value_desc("LLVM target triple"), llvm::cl::cat(OnnxMlirOptions),
     llvm::cl::ValueRequired);
 
 static llvm::cl::opt<std::string> mcpu("mcpu", llvm::cl::desc("Target cpu"),
@@ -521,6 +532,23 @@ static void genLLVMBitcode(const mlir::OwningOpRef<ModuleOp> &module,
     llvm::errs() << "Failed to translate module to LLVMIR.\n";
     exit(1);
   }
+
+  // Emit metadata "zos_le_char_mode" for z/OS. Use EBCDIC codepage by default.
+  if (llvm::Triple(getTargetTripleOption()).isOSzOS()) {
+    StringRef charModeKey = "zos_le_char_mode";
+    if (!llvmModule->getModuleFlag(charModeKey)) {
+      auto val = llvm::MDString::get(llvmContext, "ebcdic");
+      llvmModule->addModuleFlag(llvm::Module::Error, charModeKey, val);
+    }
+  }
+
+  // Emit the onnx-mlir version as llvm.ident metadata.
+  llvm::NamedMDNode *identMetadata =
+      llvmModule->getOrInsertNamedMetadata("llvm.ident");
+  llvm::LLVMContext &ctx = llvmModule->getContext();
+  llvm::Metadata *identNode[] = {llvm::MDString::get(ctx, OnnxMlirVersion)};
+  identMetadata->addOperand(llvm::MDNode::get(ctx, identNode));
+
   llvm::WriteBitcodeToFile(*llvmModule, moduleBitcodeStream);
   moduleBitcodeStream.flush();
 
@@ -752,7 +780,7 @@ void addONNXToKrnlPasses(mlir::PassManager &pm, int optLevel) {
 }
 
 void addKrnlToAffinePasses(mlir::PassManager &pm) {
-  pm.addNestedPass<FuncOp>(onnx_mlir::createConvertKrnlToAffinePass());
+  pm.addNestedPass<FuncOp>(onnx_mlir::krnl::createConvertKrnlToAffinePass());
   // Fuse loops in Affine dialect.
   //  pm.addPass(mlir::createLoopFusionPass());
 }
@@ -1031,10 +1059,23 @@ void emitOutput(mlir::OwningOpRef<ModuleOp> &module, mlir::MLIRContext &context,
 int compileModule(mlir::OwningOpRef<ModuleOp> &module,
     mlir::MLIRContext &context, std::string outputBaseName,
     EmissionTargetType emissionTarget) {
+  extern void InitAccelerators();
   setupModule(module, context, outputBaseName);
 
   mlir::PassManager pm(&context, mlir::OpPassManager::Nesting::Implicit);
-  addPasses(module, pm, emissionTarget);
+  // Initialize accelerator if required
+  if (acceleratorTarget.compare("") != 0) {
+    InitAccelerators();
+    // std::vector<onnx_mlir::accel::Accelerator *> *accTargets;
+    // accTargets = onnx_mlir::accel::Accelerator::getAcceleratorList();
+    // for (auto accel : *accTargets) {
+    for (auto accel : onnx_mlir::accel::Accelerator::getAcceleratorList()) {
+      if (accel->isActive()) {
+        accel->prepareAccelerator(module, context, pm, emissionTarget);
+      }
+    }
+  } else
+    addPasses(module, pm, emissionTarget);
   mlir::applyPassManagerCLOptions(pm);
   mlir::applyDefaultTimingPassManagerCLOptions(pm);
 

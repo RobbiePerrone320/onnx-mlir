@@ -852,21 +852,22 @@ LogicalResult ONNXSeluOp::inferShapes(
 
 // Sequence related operations
 // The general form for seq is seq<tensor<*xT>>
-// Tensors will be add or removed a seq dynamically.
-// The type of tensor should be a summary of all the tensors in the seq,
-// and can change after insertion.
+// Tensors will be add to or removed from a seq dynamically.
+// The tensor type in a seq should be a summary of all the tensor type in
+// the seq.
 // It is possible seq<tensor<*xT>> can be refined into seq<RankedTensor>,
 // or even seq<StaticShapedTensor> if all the tensors have common shape info
-// A seq is started empty as the result of SequenceEmpty. We can track this
-// property with a tag in seq type or along dataflow.
-// When the an element is added, we can do some shape inference.
-// It is not easy to do anything when an element is removed.
+// It is important to refine the type for seq in onnx-mlir because static
+// type is used. If seq of unranked tensor remains, onnx-mlir can not handle
+// the unranked tensor retrieved from the seq.
+// Here is the rules for shape inferences of seq-related ops:
+// * A seq is started empty as the result of SequenceEmpty. We can track this
+//   property with a tag in seq type or along dataflow.
+// * When the an element is added, we can merge its shape with that in seq.
+// * when an element is removed from seq, the seq becomes empty if it is the
+//   last tenor in the seq (known statically).
 // Since the seq is usually used as a parameter of a graph (e.g. for LoopOp),
 // shape inference for region may need improvement.
-// However, the motivation for seq is to support tensors with
-// different shape in a seq. Otherwise a tensor with an extra dimension can
-// be used. The benefit to refine shape info for seq is unclear to me.
-// Therefore, the current implementation does not try to refine the shape info.
 
 //===----------------------------------------------------------------------===//
 // SequenceInsertOp
@@ -957,6 +958,13 @@ LogicalResult ONNXConcatFromSequenceOp::inferShapes(
 
 LogicalResult ONNXSequenceAtOp::inferShapes(
     std::function<void(mlir::Region &)> doShapeInference) {
+  auto outputType = getResult().getType();
+  auto inputElementType =
+      input_sequence().getType().cast<SeqType>().getElementType();
+  if (!inputElementType.isa<UnrankedTensorType>() &&
+      outputType.isa<UnrankedTensorType>()) {
+    getResult().setType(inputElementType);
+  }
   return success();
 }
 
@@ -972,6 +980,25 @@ LogicalResult ONNXSequenceConstructOp::inferShapes(
 //===----------------------------------------------------------------------===//
 // SequenceEmptyOp
 //===----------------------------------------------------------------------===//
+
+LogicalResult ONNXSequenceEmptyOp::verify() {
+  // For the Optional dtypeAttr, the default type is F32
+  auto builder = mlir::OpBuilder(getContext());
+  Type elementType;
+  if (dtypeAttr()) {
+    elementType = convertONNXTypeToMLIRType(builder,
+        (onnx::TensorProto_DataType)dtypeAttr().getValue().getSExtValue());
+  } else {
+    elementType = builder.getF32Type();
+  }
+
+  // Get element type for seq from the output
+  ShapedType outputSeqElementType =
+      getResult().getType().cast<SeqType>().getElementType();
+  if (outputSeqElementType.getElementType() != elementType)
+    return emitError("SequenceEmpty dtype() does not match the output type");
+  return success();
+}
 
 LogicalResult ONNXSequenceEmptyOp::inferShapes(
     std::function<void(mlir::Region &)> doShapeInference) {
@@ -1152,19 +1179,24 @@ LogicalResult ONNXErfOp::inferShapes(
 // PowOp
 //===----------------------------------------------------------------------===//
 
+LogicalResult ONNXPowOp::verify() {
+  ShapedType lhsTy = X().getType().cast<ShapedType>();
+  ShapedType rhsTy = Y().getType().cast<ShapedType>();
+  Type rhsETy = rhsTy.getElementType();
+  Type lhsETy = lhsTy.getElementType();
+  if (rhsETy != lhsETy)
+    return emitOpError("Pow with different input type not implemented yet");
+  if (lhsETy.isa<IntegerType>() || lhsETy.isa<IntegerType>())
+    return emitOpError("Integer power not implemented yet");
+  return success();
+}
 LogicalResult ONNXPowOp::inferShapes(
     std::function<void(mlir::Region &)> doShapeInference) {
   if (!getOperand(0).getType().isa<RankedTensorType>() ||
       !getOperand(1).getType().isa<RankedTensorType>())
     return success();
-  RankedTensorType lhsTy = getOperand(0).getType().cast<RankedTensorType>();
-  RankedTensorType rhsTy = getOperand(1).getType().cast<RankedTensorType>();
-  Type rhsETy = rhsTy.getElementType();
-  Type lhsETy = lhsTy.getElementType();
-  if (rhsETy != lhsETy)
-    return emitError("Pow with different input type not implemented yet");
-  if (lhsETy.isa<IntegerType>() || lhsETy.isa<IntegerType>())
-    return emitError("Integer power not implemented yet");
+  RankedTensorType lhsTy = X().getType().cast<RankedTensorType>();
+  RankedTensorType rhsTy = Y().getType().cast<RankedTensorType>();
   getResult().setType(getBroadcastedType(lhsTy, rhsTy));
   return success();
 }
@@ -2937,15 +2969,6 @@ LogicalResult ONNXResizeOp::inferShapes(
       return emitError("scales() and sizes() can not be both defined");
   }
 
-  if (!(mode() == "nearest" &&
-          (coordinate_transformation_mode() == "half_pixel" ||
-              coordinate_transformation_mode() == "asymmetric"))) {
-    return emitError("these modes() or coordinate_transformation_mode() not "
-                     "implemented yet. mode: " +
-                     mode() + " coordinate_transformation_mode: " +
-                     coordinate_transformation_mode());
-  }
-
   // Current implementation handles constant scales only
   if (!isFromNone(scales())) {
     DenseElementsAttr scalesAttrs =
@@ -3260,6 +3283,7 @@ LogicalResult ONNXGatherOp::inferShapes(
 
 LogicalResult ONNXConstantOfShapeOp::inferShapes(
     std::function<void(mlir::Region &)> doShapeInference) {
+
   Type elementType;
 
   // 'value' attribute is a one-element tensor whose value and datatype are
@@ -3282,10 +3306,6 @@ LogicalResult ONNXConstantOfShapeOp::inferShapes(
 
   // 'input' must be a 1D tensor.
   auto inputShape = input().getType().cast<RankedTensorType>().getShape();
-  if (inputShape.size() != 1)
-    return emitError("Input tensor must be a 1D tensor");
-  if (inputShape[0] == -1)
-    return emitError("Input tensor must have static shape");
   if (inputShape[0] == 0) {
     // If 'input' is an empty tensor, the output would be a scalar.
     getResult().setType(RankedTensorType::get({}, elementType));
@@ -3303,16 +3323,47 @@ LogicalResult ONNXConstantOfShapeOp::inferShapes(
     auto valueIt = valueAttribute.getValues<IntegerAttr>().begin();
     for (int i = 0; i < inputShape[0]; ++i) {
       auto dim = (*valueIt++).cast<IntegerAttr>().getInt();
-      if (dim < 0)
-        return emitError("All values of the input tensor must be >=0");
       outputDims[i] = dim;
     }
-
-    if (valueIt != valueAttribute.getValues<IntegerAttr>().end())
-      return emitError("Constant value must have same length as output's rank");
   }
 
   getResult().setType(RankedTensorType::get(outputDims, elementType));
+  return success();
+}
+
+LogicalResult ONNXConstantOfShapeOp::verify() {
+  ONNXConstantOfShapeOpAdaptor operandAdaptor =
+      ONNXConstantOfShapeOpAdaptor(*this);
+
+  auto input = operandAdaptor.input();
+
+  if (!hasShapeAndRank(input))
+    return success();
+
+  auto inputShape = input.getType().cast<RankedTensorType>().getShape();
+  if (inputShape.size() != 1)
+    return emitOpError("Input tensor must be a 1D tensor");
+  if (inputShape[0] == -1)
+    return emitOpError("Input tensor must have static shape");
+
+  // Calculate output dimensions.
+  SmallVector<int64_t, 4> outputDims(inputShape[0], -1);
+  // If 'input' is a constant, check whether its values are valid or not.
+  // If the values are valid, it is possible to infer shape.
+  if (auto constantOp = getONNXConstantOp(input)) {
+    DenseElementsAttr valueAttribute =
+        constantOp.valueAttr().dyn_cast<DenseElementsAttr>();
+    // Get repeat values from valueAttribute.
+    auto valueIt = valueAttribute.getValues<IntegerAttr>().begin();
+    for (int i = 0; i < inputShape[0]; ++i) {
+      auto dim = (*valueIt++).cast<IntegerAttr>().getInt();
+      if (dim < 0)
+        return emitOpError("All values of the input tensor must be >=0");
+    }
+    if (valueIt != valueAttribute.getValues<IntegerAttr>().end())
+      return emitOpError(
+          "Constant value must have same length as output's rank");
+  }
   return success();
 }
 
@@ -3448,27 +3499,50 @@ LogicalResult ONNXOneHotEncoderOp::inferShapes(
   // the data will be cast to integers and
   // the cats_int64s category list will be used for the lookups.
   if (inputType.getElementType().isIntOrFloat()) {
-    if (!cats_int64s())
-      return emitError("input is a tensor of float, int32, or double, but no "
-                       "cats_int64s attribute");
     outDim = ArrayAttrSize(cats_int64s());
   } else {
-    if (!cats_strings())
-      return emitError("input is not a tensor of float, int32, or double, but "
-                       "no cats_strings attribute");
     outDim = ArrayAttrSize(cats_strings());
   }
 
   // Encoded output data, having one more dimension than X
   // total category count will determine the size of the extra dimension
   SmallVector<int64_t, 2> dims;
-  for (unsigned int i = 0; i != shape.size(); ++i) {
+  for (unsigned int i = 0; i != shape.size(); ++i)
     dims.emplace_back(shape[i]);
-  }
   dims.emplace_back(outDim);
 
   getResult().setType(
       RankedTensorType::get(dims, FloatType::getF32(getContext())));
+  return success();
+}
+
+LogicalResult ONNXOneHotEncoderOp::verify() {
+  ONNXOneHotEncoderOpAdaptor operandAdaptor = ONNXOneHotEncoderOpAdaptor(*this);
+
+  // get operands
+  auto input = operandAdaptor.X();
+  if (!hasShapeAndRank(input))
+    return success();
+
+  auto inputType = input.getType().cast<ShapedType>();
+  if (!inputType)
+    return success();
+
+  // If the input is a tensor of float, int32, or double,
+  // the data will be cast to integers and
+  // the cats_int64s category list will be used for the lookups.
+  if (inputType.getElementType().isIntOrFloat()) {
+    if (!operandAdaptor.cats_int64s()) {
+      return emitOpError("input is a tensor of float, int32, or double, but no "
+                         "cats_int64s attribute");
+    }
+  } else {
+    if (!operandAdaptor.cats_strings()) {
+      return emitOpError(
+          "input is not a tensor of float, int32, or double, but "
+          "no cats_strings attribute");
+    }
+  }
   return success();
 }
 
