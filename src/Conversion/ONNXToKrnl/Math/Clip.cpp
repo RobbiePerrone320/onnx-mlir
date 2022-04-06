@@ -13,9 +13,12 @@
 //===----------------------------------------------------------------------===//
 
 #include "src/Conversion/ONNXToKrnl/ONNXToKrnlCommon.hpp"
+#include "src/Dialect/Krnl/DialectBuilder.hpp"
 #include "src/Dialect/ONNX/ShapeInference/ONNXShapeHelper.hpp"
 
 using namespace mlir;
+
+namespace onnx_mlir {
 
 //===----------------------------------------------------------------------===//
 // Scalar unary ops for lowering ONNXClipOp
@@ -33,10 +36,10 @@ struct ONNXClipOpLowering : public ConversionPattern {
 
     ONNXClipOpAdaptor operandAdaptor(operands);
     ONNXClipOpShapeHelper shapeHelper(&clipOp, &rewriter,
-        getDenseElementAttributeFromKrnlValue,
-        loadDenseElementArrayValueAtIndex);
+        krnl::getDenseElementAttributeFromKrnlValue,
+        krnl::loadDenseElementArrayValueAtIndex);
     auto shapeComputed = shapeHelper.computeShape(operandAdaptor);
-    assert(succeeded(shapeComputed));
+    assert(succeeded(shapeComputed) && "Could not compute output shape");
 
     Value input = operandAdaptor.input();
     Value min = operandAdaptor.min();
@@ -98,3 +101,5 @@ void populateLoweringONNXClipOpPattern(RewritePatternSet &patterns,
     TypeConverter &typeConverter, MLIRContext *ctx) {
   patterns.insert<ONNXClipOpLowering>(typeConverter, ctx);
 }
+
+} // namespace onnx_mlir

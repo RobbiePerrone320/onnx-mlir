@@ -43,6 +43,10 @@ llvm::cl::opt<bool> preserveBitcode("preserveBitcode",
         "dont delete the bitcode files (optimized and unoptimized):"),
     llvm::cl::init(false), llvm::cl::cat(OnnxMlirOptions));
 
+llvm::cl::opt<bool> preserveLLVMIR("preserveLLVMIR",
+    llvm::cl::desc("dont delete the LLVMIR files:"), llvm::cl::init(false),
+    llvm::cl::cat(OnnxMlirOptions));
+
 llvm::cl::opt<bool> preserveMLIR("preserveMLIR",
     llvm::cl::desc("dont delete the MLIR files (input and llvm):"),
     llvm::cl::init(false), llvm::cl::cat(OnnxMlirOptions));
@@ -84,9 +88,12 @@ llvm::cl::opt<std::string> march("march",
 
 llvm::cl::list<accel::Accelerator::Kind> maccel("maccel",
     llvm::cl::desc("Specify an accelerator to generate code for"),
+    // clang-format off
     llvm::cl::values(
-#include "src/Accelerators/AcceleratorOptions.hpp"
-        ),
+      APPLY_TO_ACCELERATORS(CREATE_ACCEL_CL_ENUM)
+      clEnumValN(accel::Accelerator::Kind::NONE, "NONE", "No accelerator")
+    ),
+    // clang-format on
     llvm::cl::cat(OnnxMlirOptions), llvm::cl::ValueRequired);
 
 llvm::cl::opt<bool> VerboseOutput("v", llvm::cl::desc("Use verbose output"),

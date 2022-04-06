@@ -14,11 +14,12 @@
 //===----------------------------------------------------------------------===//
 
 #include "src/Conversion/ONNXToKrnl/ONNXToKrnlCommon.hpp"
-#include "src/Dialect/ONNX/MLIRDialectBuilder.hpp"
-
-using namespace onnx_mlir;
+#include "src/Dialect/Krnl/DialectBuilder.hpp"
+#include "src/Dialect/Mlir/DialectBuilder.hpp"
 
 bool ONNXToKrnl_gEmitDealloc = false;
+
+namespace onnx_mlir {
 
 Value OnnxToKrnlBuilder::reshape(
     const Value input, const ArrayRef<DimIndexExpr> shapeDims) const {
@@ -313,7 +314,7 @@ std::map<int64_t, int64_t> getReductionMapping(
 // Add bounds associated with the op operand to the KRNL iteration pack.
 // Dynamic dimension are supported.
 void addDimensionToPack(ConversionPatternRewriter &rewriter, Location loc,
-    KrnlIterateOperandPack &pack, Value operand, int index) {
+    krnl::KrnlIterateOperandPack &pack, Value operand, int index) {
   auto shape = operand.getType().cast<MemRefType>().getShape();
   if (shape[index] < 0) {
     MultiDialectBuilder<MemRefBuilder> create(rewriter, loc);
@@ -348,7 +349,7 @@ Value getDimOrConstant(ConversionPatternRewriter &rewriter, Location loc,
 /// and return a constant.
 Value foldOrEmitONNXSqueezeV11Op(ConversionPatternRewriter &rewriter,
     Location loc, Type resultType, Value input, int64_t axis) {
-  if (isKrnlGlobalConstant(input) || isDenseONNXConstant(input)) {
+  if (krnl::isKrnlGlobalConstant(input) || isDenseONNXConstant(input)) {
     char *inputBuffer = createArrayFromDenseElementsAttr(
         input.getDefiningOp()
             ->getAttrOfType<::mlir::Attribute>("value")
@@ -371,7 +372,7 @@ Value foldOrEmitONNXSqueezeV11Op(ConversionPatternRewriter &rewriter,
 /// and return a constant.
 Value foldOrEmitONNXUnsqueezeV11Op(ConversionPatternRewriter &rewriter,
     Location loc, Type resultType, Value input, int64_t axis) {
-  if (isKrnlGlobalConstant(input) || isDenseONNXConstant(input)) {
+  if (krnl::isKrnlGlobalConstant(input) || isDenseONNXConstant(input)) {
     char *inputBuffer = createArrayFromDenseElementsAttr(
         input.getDefiningOp()
             ->getAttrOfType<::mlir::Attribute>("value")
@@ -410,7 +411,7 @@ std::vector<Value> foldOrEmitONNXSplitOp(ConversionPatternRewriter &rewriter,
     offset += inputShape[axis] / outputNum;
   }
 
-  if (isKrnlGlobalConstant(input) || isDenseONNXConstant(input)) {
+  if (krnl::isKrnlGlobalConstant(input) || isDenseONNXConstant(input)) {
     char *inputBuffer = createArrayFromDenseElementsAttr(
         input.getDefiningOp()
             ->getAttrOfType<::mlir::Attribute>("value")
@@ -453,7 +454,7 @@ Value foldOrEmitONNXTransposeOp(ConversionPatternRewriter &rewriter,
   for (auto permVal : permAttr.getValue())
     perm.emplace_back(permVal.cast<IntegerAttr>().getInt());
 
-  if (isKrnlGlobalConstant(input) || isDenseONNXConstant(input)) {
+  if (krnl::isKrnlGlobalConstant(input) || isDenseONNXConstant(input)) {
     char *inputBuffer = createArrayFromDenseElementsAttr(
         input.getDefiningOp()
             ->getAttrOfType<::mlir::Attribute>("value")
@@ -519,7 +520,7 @@ Value emitArgSort(ConversionPatternRewriter &rewriter, Location loc,
   ValueRange loopDef = createKrnl.defineLoops(rank);
   createKrnl.iterateIE(loopDef, loopDef, lbs, outerUbs,
       [&](KrnlBuilder &createKrnl, ValueRange iLoopInd) {
-        IndexExpr i1 = DimIndexExpr(iLoopInd[axis]) + LiteralIndexExpr(1);
+        IndexExpr i1 = DimIndexExpr(iLoopInd[axis]) + oneIE;
         ValueRange swapLoopDef = createKrnl.defineLoops(1);
         createKrnl.iterateIE(swapLoopDef, swapLoopDef, {i1}, {ubs[axis]},
             [&](KrnlBuilder &createKrnl, ValueRange swapLoopInd) {
@@ -644,3 +645,5 @@ KrnlTypeConverter::KrnlTypeConverter() {
         .getResult(0);
   });
 }
+
+} // namespace onnx_mlir
