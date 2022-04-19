@@ -97,7 +97,8 @@ def ONNXAddOp:ONNX_Op<"Add",
     OpBuilder<(ins "Value":$A, "Value":$B), [{
       auto lhsTy = A.getType();
       auto rhsTy = B.getType();
-      auto elementType = getBroadcastedRankedType(lhsTy, rhsTy);
+      auto oTy = nullptr;
+      auto elementType = getBroadcastedRankedType(lhsTy, rhsTy, oTy);
       auto shapedType = elementType.dyn_cast_or_null<ShapedType>();
       if (!shapedType || !shapedType.hasStaticShape()) {
             elementType = A.getType().cast<ShapedType>().getElementType();
@@ -108,7 +109,8 @@ def ONNXAddOp:ONNX_Op<"Add",
     OpBuilder<(ins "ValueRange":$operands, "ArrayRef<NamedAttribute>":$attributes), [{
       auto lhsTy = operands[0].getType();
       auto rhsTy = operands[1].getType();
-      auto elementType = getBroadcastedRankedType(lhsTy, rhsTy);
+      auto oTy = nullptr;
+      auto elementType = getBroadcastedRankedType(lhsTy, rhsTy, oTy);
       auto shapedType = elementType.dyn_cast_or_null<ShapedType>();
       if (!shapedType || !shapedType.hasStaticShape()) {
             elementType = operands[0].getType().cast<ShapedType>().getElementType();
@@ -148,7 +150,8 @@ def ONNXAndOp:ONNX_Op<"And",
     OpBuilder<(ins "Value":$A, "Value":$B), [{
       auto lhsTy = A.getType();
       auto rhsTy = B.getType();
-      auto elementType = getBroadcastedRankedType(lhsTy, rhsTy);
+      auto oTy = nullptr;
+      auto elementType = getBroadcastedRankedType(lhsTy, rhsTy, oTy);
       auto shapedType = elementType.dyn_cast_or_null<ShapedType>();
       if (!shapedType || !shapedType.hasStaticShape()) {
             elementType = A.getType().cast<ShapedType>().getElementType();
@@ -159,7 +162,8 @@ def ONNXAndOp:ONNX_Op<"And",
     OpBuilder<(ins "ValueRange":$operands, "ArrayRef<NamedAttribute>":$attributes), [{
       auto lhsTy = operands[0].getType();
       auto rhsTy = operands[1].getType();
-      auto elementType = getBroadcastedRankedType(lhsTy, rhsTy);
+      auto oTy = nullptr;
+      auto elementType = getBroadcastedRankedType(lhsTy, rhsTy, oTy);
       auto shapedType = elementType.dyn_cast_or_null<ShapedType>();
       if (!shapedType || !shapedType.hasStaticShape()) {
             elementType = operands[0].getType().cast<ShapedType>().getElementType();
@@ -1134,7 +1138,8 @@ def ONNXDivOp:ONNX_Op<"Div",
     OpBuilder<(ins "Value":$A, "Value":$B), [{
       auto lhsTy = A.getType();
       auto rhsTy = B.getType();
-      auto elementType = getBroadcastedRankedType(lhsTy, rhsTy);
+      auto oTy = nullptr;
+      auto elementType = getBroadcastedRankedType(lhsTy, rhsTy, oTy);
       auto shapedType = elementType.dyn_cast_or_null<ShapedType>();
       if (!shapedType || !shapedType.hasStaticShape()) {
             elementType = A.getType().cast<ShapedType>().getElementType();
@@ -1145,7 +1150,8 @@ def ONNXDivOp:ONNX_Op<"Div",
     OpBuilder<(ins "ValueRange":$operands, "ArrayRef<NamedAttribute>":$attributes), [{
       auto lhsTy = operands[0].getType();
       auto rhsTy = operands[1].getType();
-      auto elementType = getBroadcastedRankedType(lhsTy, rhsTy);
+      auto oTy = nullptr;
+      auto elementType = getBroadcastedRankedType(lhsTy, rhsTy, oTy);
       auto shapedType = elementType.dyn_cast_or_null<ShapedType>();
       if (!shapedType || !shapedType.hasStaticShape()) {
             elementType = operands[0].getType().cast<ShapedType>().getElementType();
@@ -1335,10 +1341,11 @@ def ONNXEqualOp:ONNX_Op<"Equal",
     OpBuilder<(ins "Value":$A, "Value":$B), [{
       auto lhsTy = A.getType();
       auto rhsTy = B.getType();
-      auto elementType = getBroadcastedRankedType(lhsTy, rhsTy);
+      auto oTy = $_builder.getI1Type();
+      auto elementType = getBroadcastedRankedType(lhsTy, rhsTy, oTy);
       auto shapedType = elementType.dyn_cast_or_null<ShapedType>();
       if (!shapedType || !shapedType.hasStaticShape()) {
-            elementType = A.getType().cast<ShapedType>().getElementType();
+            elementType = $_builder.getI1Type();
             elementType = UnrankedTensorType::get(elementType);
       }
       build($_builder, $_state, elementType, A, B);
@@ -1346,10 +1353,11 @@ def ONNXEqualOp:ONNX_Op<"Equal",
     OpBuilder<(ins "ValueRange":$operands, "ArrayRef<NamedAttribute>":$attributes), [{
       auto lhsTy = operands[0].getType();
       auto rhsTy = operands[1].getType();
-      auto elementType = getBroadcastedRankedType(lhsTy, rhsTy);
+      auto oTy = $_builder.getI1Type();
+      auto elementType = getBroadcastedRankedType(lhsTy, rhsTy, oTy);
       auto shapedType = elementType.dyn_cast_or_null<ShapedType>();
       if (!shapedType || !shapedType.hasStaticShape()) {
-            elementType = operands[0].getType().cast<ShapedType>().getElementType();
+            elementType = $_builder.getI1Type();
             elementType = UnrankedTensorType::get(elementType);
       }
       std::vector<mlir::Type> outputTypes;
@@ -2031,10 +2039,11 @@ def ONNXGreaterOp:ONNX_Op<"Greater",
     OpBuilder<(ins "Value":$A, "Value":$B), [{
       auto lhsTy = A.getType();
       auto rhsTy = B.getType();
-      auto elementType = getBroadcastedRankedType(lhsTy, rhsTy);
+      auto oTy = $_builder.getI1Type();
+      auto elementType = getBroadcastedRankedType(lhsTy, rhsTy, oTy);
       auto shapedType = elementType.dyn_cast_or_null<ShapedType>();
       if (!shapedType || !shapedType.hasStaticShape()) {
-            elementType = A.getType().cast<ShapedType>().getElementType();
+            elementType = $_builder.getI1Type();
             elementType = UnrankedTensorType::get(elementType);
       }
       build($_builder, $_state, elementType, A, B);
@@ -2042,10 +2051,11 @@ def ONNXGreaterOp:ONNX_Op<"Greater",
     OpBuilder<(ins "ValueRange":$operands, "ArrayRef<NamedAttribute>":$attributes), [{
       auto lhsTy = operands[0].getType();
       auto rhsTy = operands[1].getType();
-      auto elementType = getBroadcastedRankedType(lhsTy, rhsTy);
+      auto oTy = $_builder.getI1Type();
+      auto elementType = getBroadcastedRankedType(lhsTy, rhsTy, oTy);
       auto shapedType = elementType.dyn_cast_or_null<ShapedType>();
       if (!shapedType || !shapedType.hasStaticShape()) {
-            elementType = operands[0].getType().cast<ShapedType>().getElementType();
+            elementType = $_builder.getI1Type();
             elementType = UnrankedTensorType::get(elementType);
       }
       std::vector<mlir::Type> outputTypes;
@@ -2473,10 +2483,11 @@ def ONNXLessOp:ONNX_Op<"Less",
     OpBuilder<(ins "Value":$A, "Value":$B), [{
       auto lhsTy = A.getType();
       auto rhsTy = B.getType();
-      auto elementType = getBroadcastedRankedType(lhsTy, rhsTy);
+      auto oTy = $_builder.getI1Type();
+      auto elementType = getBroadcastedRankedType(lhsTy, rhsTy, oTy);
       auto shapedType = elementType.dyn_cast_or_null<ShapedType>();
       if (!shapedType || !shapedType.hasStaticShape()) {
-            elementType = A.getType().cast<ShapedType>().getElementType();
+            elementType = $_builder.getI1Type();
             elementType = UnrankedTensorType::get(elementType);
       }
       build($_builder, $_state, elementType, A, B);
@@ -2484,10 +2495,11 @@ def ONNXLessOp:ONNX_Op<"Less",
     OpBuilder<(ins "ValueRange":$operands, "ArrayRef<NamedAttribute>":$attributes), [{
       auto lhsTy = operands[0].getType();
       auto rhsTy = operands[1].getType();
-      auto elementType = getBroadcastedRankedType(lhsTy, rhsTy);
+      auto oTy = $_builder.getI1Type();
+      auto elementType = getBroadcastedRankedType(lhsTy, rhsTy, oTy);
       auto shapedType = elementType.dyn_cast_or_null<ShapedType>();
       if (!shapedType || !shapedType.hasStaticShape()) {
-            elementType = operands[0].getType().cast<ShapedType>().getElementType();
+            elementType = $_builder.getI1Type();
             elementType = UnrankedTensorType::get(elementType);
       }
       std::vector<mlir::Type> outputTypes;
@@ -3117,7 +3129,8 @@ def ONNXMulOp:ONNX_Op<"Mul",
     OpBuilder<(ins "Value":$A, "Value":$B), [{
       auto lhsTy = A.getType();
       auto rhsTy = B.getType();
-      auto elementType = getBroadcastedRankedType(lhsTy, rhsTy);
+      auto oTy = nullptr;
+      auto elementType = getBroadcastedRankedType(lhsTy, rhsTy, oTy);
       auto shapedType = elementType.dyn_cast_or_null<ShapedType>();
       if (!shapedType || !shapedType.hasStaticShape()) {
             elementType = A.getType().cast<ShapedType>().getElementType();
@@ -3128,7 +3141,8 @@ def ONNXMulOp:ONNX_Op<"Mul",
     OpBuilder<(ins "ValueRange":$operands, "ArrayRef<NamedAttribute>":$attributes), [{
       auto lhsTy = operands[0].getType();
       auto rhsTy = operands[1].getType();
-      auto elementType = getBroadcastedRankedType(lhsTy, rhsTy);
+      auto oTy = nullptr;
+      auto elementType = getBroadcastedRankedType(lhsTy, rhsTy, oTy);
       auto shapedType = elementType.dyn_cast_or_null<ShapedType>();
       if (!shapedType || !shapedType.hasStaticShape()) {
             elementType = operands[0].getType().cast<ShapedType>().getElementType();
@@ -3459,7 +3473,8 @@ def ONNXOrOp:ONNX_Op<"Or",
     OpBuilder<(ins "Value":$A, "Value":$B), [{
       auto lhsTy = A.getType();
       auto rhsTy = B.getType();
-      auto elementType = getBroadcastedRankedType(lhsTy, rhsTy);
+      auto oTy = nullptr;
+      auto elementType = getBroadcastedRankedType(lhsTy, rhsTy, oTy);
       auto shapedType = elementType.dyn_cast_or_null<ShapedType>();
       if (!shapedType || !shapedType.hasStaticShape()) {
             elementType = A.getType().cast<ShapedType>().getElementType();
@@ -3470,7 +3485,8 @@ def ONNXOrOp:ONNX_Op<"Or",
     OpBuilder<(ins "ValueRange":$operands, "ArrayRef<NamedAttribute>":$attributes), [{
       auto lhsTy = operands[0].getType();
       auto rhsTy = operands[1].getType();
-      auto elementType = getBroadcastedRankedType(lhsTy, rhsTy);
+      auto oTy = nullptr;
+      auto elementType = getBroadcastedRankedType(lhsTy, rhsTy, oTy);
       auto shapedType = elementType.dyn_cast_or_null<ShapedType>();
       if (!shapedType || !shapedType.hasStaticShape()) {
             elementType = operands[0].getType().cast<ShapedType>().getElementType();
@@ -3783,7 +3799,8 @@ def ONNXPowOp:ONNX_Op<"Pow",
     OpBuilder<(ins "Value":$X, "Value":$Y), [{
       auto lhsTy = X.getType();
       auto rhsTy = Y.getType();
-      auto elementType = getBroadcastedRankedType(lhsTy, rhsTy);
+      auto oTy = nullptr;
+      auto elementType = getBroadcastedRankedType(lhsTy, rhsTy, oTy);
       auto shapedType = elementType.dyn_cast_or_null<ShapedType>();
       if (!shapedType || !shapedType.hasStaticShape()) {
             elementType = X.getType().cast<ShapedType>().getElementType();
@@ -3794,7 +3811,8 @@ def ONNXPowOp:ONNX_Op<"Pow",
     OpBuilder<(ins "ValueRange":$operands, "ArrayRef<NamedAttribute>":$attributes), [{
       auto lhsTy = operands[0].getType();
       auto rhsTy = operands[1].getType();
-      auto elementType = getBroadcastedRankedType(lhsTy, rhsTy);
+      auto oTy = nullptr;
+      auto elementType = getBroadcastedRankedType(lhsTy, rhsTy, oTy);
       auto shapedType = elementType.dyn_cast_or_null<ShapedType>();
       if (!shapedType || !shapedType.hasStaticShape()) {
             elementType = operands[0].getType().cast<ShapedType>().getElementType();
@@ -6026,7 +6044,8 @@ def ONNXSubOp:ONNX_Op<"Sub",
     OpBuilder<(ins "Value":$A, "Value":$B), [{
       auto lhsTy = A.getType();
       auto rhsTy = B.getType();
-      auto elementType = getBroadcastedRankedType(lhsTy, rhsTy);
+      auto oTy = nullptr;
+      auto elementType = getBroadcastedRankedType(lhsTy, rhsTy, oTy);
       auto shapedType = elementType.dyn_cast_or_null<ShapedType>();
       if (!shapedType || !shapedType.hasStaticShape()) {
             elementType = A.getType().cast<ShapedType>().getElementType();
@@ -6037,7 +6056,8 @@ def ONNXSubOp:ONNX_Op<"Sub",
     OpBuilder<(ins "ValueRange":$operands, "ArrayRef<NamedAttribute>":$attributes), [{
       auto lhsTy = operands[0].getType();
       auto rhsTy = operands[1].getType();
-      auto elementType = getBroadcastedRankedType(lhsTy, rhsTy);
+      auto oTy = nullptr;
+      auto elementType = getBroadcastedRankedType(lhsTy, rhsTy, oTy);
       auto shapedType = elementType.dyn_cast_or_null<ShapedType>();
       if (!shapedType || !shapedType.hasStaticShape()) {
             elementType = operands[0].getType().cast<ShapedType>().getElementType();
@@ -6592,7 +6612,8 @@ def ONNXXorOp:ONNX_Op<"Xor",
     OpBuilder<(ins "Value":$A, "Value":$B), [{
       auto lhsTy = A.getType();
       auto rhsTy = B.getType();
-      auto elementType = getBroadcastedRankedType(lhsTy, rhsTy);
+      auto oTy = nullptr;
+      auto elementType = getBroadcastedRankedType(lhsTy, rhsTy, oTy);
       auto shapedType = elementType.dyn_cast_or_null<ShapedType>();
       if (!shapedType || !shapedType.hasStaticShape()) {
             elementType = A.getType().cast<ShapedType>().getElementType();
@@ -6603,7 +6624,8 @@ def ONNXXorOp:ONNX_Op<"Xor",
     OpBuilder<(ins "ValueRange":$operands, "ArrayRef<NamedAttribute>":$attributes), [{
       auto lhsTy = operands[0].getType();
       auto rhsTy = operands[1].getType();
-      auto elementType = getBroadcastedRankedType(lhsTy, rhsTy);
+      auto oTy = nullptr;
+      auto elementType = getBroadcastedRankedType(lhsTy, rhsTy, oTy);
       auto shapedType = elementType.dyn_cast_or_null<ShapedType>();
       if (!shapedType || !shapedType.hasStaticShape()) {
             elementType = operands[0].getType().cast<ShapedType>().getElementType();
